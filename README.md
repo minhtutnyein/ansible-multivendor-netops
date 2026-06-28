@@ -34,6 +34,51 @@ static routes. Template-driven, reusable per branch (BR01, BR02, …).
 
 **BR01 (CSR):** `10.1.5.145` → PA outside `10.1.5.5` | IKEv2 AES-256/SHA-256/DH20 | IPSec AES-256/SHA-256/PFS5
 
+### cisco-vpn-deploy task (`deploy_vpn.yml`)
+
+Pushes the full IKEv2/IPSec configuration to every host in `[branch_routers]`,
+saves the running-config (idempotent `save_when: modified`), then verifies the
+tunnel state. Three tasks run in order:
+
+| # | Task | What it does |
+|---|------|--------------|
+| 1 | **Push config** | Renders `templates/ikev2_ipsec_tunnel.j2` via `cisco.ios.ios_config` and applies all crypto + tunnel + static-route lines |
+| 2 | **Show applied commands** | Prints the IOS commands that actually changed (skipped when list is empty) |
+| 3 | **Verify** | Runs `show interfaces Tunnel`, `show crypto ikev2 sa`, `show crypto ipsec sa` and prints the output — skipped in `--check` mode |
+
+**Key variables (host_vars/br01.yml):**
+```
+peer_ip / tunnel_source / tunnel_destination   — endpoint IPs
+tunnel_id / tunnel_ip / tunnel_mask            — Tunnel interface
+ike_encryption / ike_integrity / ike_dh_group  — Phase 1 crypto
+esp_cipher / esp_hmac / pfs_group              — Phase 2 crypto
+static_routes[]                                — network/mask/next_hop list
+save_config_when (group_vars)                  — modified | always | never
+```
+
+**Run the deploy:**
+```bash
+cd cisco-vpn-ansible
+
+# One-time: install collection and encrypt vault
+ansible-galaxy collection install -r requirements.yml
+ansible-vault encrypt group_vars/branch_routers/vault.yml
+
+# Dry run — preview commands, touch nothing
+ansible-playbook deploy_vpn.yml --ask-vault-pass --check --diff
+
+# Apply to all branch routers
+ansible-playbook deploy_vpn.yml --ask-vault-pass
+
+# Target a single site
+ansible-playbook deploy_vpn.yml --ask-vault-pass --limit br01
+```
+
+**Adding a new branch (BR02, BR03 …):**
+1. Add the host to `inventory.ini` under `[branch_routers]`.
+2. Copy `host_vars/br01.yml` → `host_vars/br02.yml` and update the site values.
+3. Re-run the playbook — the template and tasks are unchanged.
+
 ## 3. palo-alto-vpn-ansible
 A focused, standalone playbook for just the Palo Alto end of the BR01 VPN
 (IKE/IPSec crypto, gateway, tunnel, proxy-id). This is now also covered inside the
