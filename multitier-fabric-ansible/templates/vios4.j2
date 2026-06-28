@@ -1,0 +1,30 @@
+hostname {{ inventory_hostname }}
+!
+clock timezone {{ ios_timezone }}
+!
+spanning-tree mode pvst
+spanning-tree extend system-id
+!
+interface Port-channel{{ local_po }}
+ switchport trunk allowed vlan {{ access_vlans }}
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+!
+{% for intf in veos_uplink_members %}
+interface {{ intf }}
+ description ### UPLINK ###
+ switchport trunk allowed vlan {{ access_vlans }}
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+ negotiation auto
+ channel-group {{ local_po }} mode active
+{% endfor %}
+!
+{% for ap in server_access_ports %}
+interface {{ ap.interface }}
+ switchport access vlan {{ ap.vlan }}
+ switchport mode access
+ negotiation auto
+{% endfor %}
+!
+end

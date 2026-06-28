@@ -1,0 +1,10 @@
+# The provider dict is how every panos_* module authenticates to the firewall.
+provider:
+  ip_address: "{{ ansible_host }}"
+  username: "{{ vault_panos_username }}"
+  password: "{{ vault_panos_password }}"
+  # Or use an API key instead of username/password:
+  # api_key: "{{ vault_panos_api_key }}"
+
+# Commit the candidate config at the end of the run. Set false to stage only.
+do_commit: true

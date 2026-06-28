@@ -1,0 +1,34 @@
+---
+- name: Deploy IKEv2 / IPSec site-to-site VPN on Cisco IOS branch routers
+  hosts: branch_routers
+  gather_facts: false
+
+  tasks:
+    - name: Push IKEv2 + IPSec + Tunnel + routing configuration
+      cisco.ios.ios_config:
+        src: templates/ikev2_ipsec_tunnel.j2
+        # Save running-config to startup-config ("do wr mem").
+        # 'modified' keeps the run idempotent: it only saves on actual change.
+        save_when: "{{ save_config_when }}"
+      register: deploy_result
+
+    - name: Show the commands that were applied
+      ansible.builtin.debug:
+        var: deploy_result.commands
+      when: deploy_result.commands | default([]) | length > 0
+
+    # Optional verification (skipped in --check mode, since nothing is applied then)
+    - name: Verify Tunnel interface and IKEv2 SA
+      cisco.ios.ios_command:
+        commands:
+          - "show interfaces Tunnel{{ tunnel_id }} | include line protocol"
+          - show crypto ikev2 sa
+          - show crypto ipsec sa | include local|remote|encaps|decaps
+      register: verify
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Display verification output
+      ansible.builtin.debug:
+        var: verify.stdout_lines
+      when: not ansible_check_mode

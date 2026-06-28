@@ -1,0 +1,16 @@
+# =====================================================================
+#  SECRETS — ENCRYPT THIS FILE:
+#     ansible-vault encrypt group_vars/firewalls/vault.yml
+#  Edit later:
+#     ansible-vault edit group_vars/firewalls/vault.yml
+# =====================================================================
+
+# Firewall admin login used by the XML API
+vault_panos_username: "admin"
+vault_panos_password: "CHANGE_ME_panos_admin_password"
+
+# IKEv2 pre-shared key — must match the Cisco BR01 keyring exactly.
+vault_psk: '!k3v2K3y!@#'
+
+# Optional: use an API key instead of username/password
+# vault_panos_api_key: "CHANGE_ME_api_key"

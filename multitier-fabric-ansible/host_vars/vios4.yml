@@ -1,0 +1,8 @@
+# vIOS4 — L2 access/aggregation switch (VLAN 10,20,30)
+local_po: 4                                          # Port-channel4 (local)
+veos_uplink_members: [GigabitEthernet0/0, GigabitEthernet0/1]   # to vEOS pair
+
+server_access_ports:
+  - { interface: GigabitEthernet1/0, vlan: 10 }      # WEB
+  - { interface: GigabitEthernet1/1, vlan: 20 }      # APP
+  - { interface: GigabitEthernet1/2, vlan: 30 }      # DB

@@ -1,0 +1,89 @@
+hostname {{ inventory_hostname }}
+!
+service routing protocols model ribd
+!
+spanning-tree mode mstp
+no spanning-tree vlan-id {{ peer_link_vlan }}
+!
+clock timezone {{ timezone }}
+!
+{% for t in tiers %}
+vlan {{ t.access_vlan }}
+   name {{ t.access_vlan_name }}
+vlan {{ t.transit_vlan }}
+   name {{ t.transit_vlan_name }}
+{% endfor %}
+vlan {{ peer_link_vlan }}
+   trunk group {{ mlag_trunk_group }}
+!
+{% for t in tiers %}
+vrf instance {{ t.name }}
+{% endfor %}
+!
+interface Port-Channel{{ peer_link_po }}
+   description {{ peer_link_desc }}
+   switchport mode trunk
+   switchport trunk group {{ mlag_trunk_group }}
+!
+interface Port-Channel{{ transit_po }}
+   description MEMBER_PO{{ transit_po }}
+   switchport trunk allowed vlan {{ transit_vlans }}
+   switchport mode trunk
+   mlag {{ transit_po }}
+!
+interface Port-Channel{{ access_po }}
+   description MEMBER_PO{{ access_po }}
+   switchport trunk allowed vlan {{ access_vlans }}
+   switchport mode trunk
+   mlag {{ access_po }}
+!
+{% for intf in peer_link_members %}
+interface {{ intf }}
+   channel-group {{ peer_link_po }} mode active
+{% endfor %}
+{% for intf in transit_members %}
+interface {{ intf }}
+   channel-group {{ transit_po }} mode active
+{% endfor %}
+{% for intf in access_members %}
+interface {{ intf }}
+   channel-group {{ access_po }} mode active
+{% endfor %}
+!
+{% for t in tiers %}
+interface Vlan{{ t.access_vlan }}
+   no autostate
+   vrf {{ t.name }}
+   ip address {{ t.access_prefix }}.{{ access_octet }}/{{ t.mask }}
+   ip virtual-router address {{ t.access_vip }}
+interface Vlan{{ t.transit_vlan }}
+   no autostate
+   vrf {{ t.name }}
+   ip address {{ t.transit_prefix }}.{{ transit_octet }}/{{ t.mask }}
+   ip virtual-router address {{ t.transit_vip }}
+{% endfor %}
+interface Vlan{{ peer_link_vlan }}
+   description MLAG_PEER
+   no autostate
+   ip address {{ mlag_local_ip }}
+!
+ip virtual-router mac-address {{ varp_mac }}
+!
+ip routing
+{% for t in tiers %}
+ip routing vrf {{ t.name }}
+{% endfor %}
+!
+mlag configuration
+   domain-id {{ mlag_domain }}
+   local-interface Vlan{{ peer_link_vlan }}
+   peer-address {{ mlag_peer_ip }}
+   peer-link Port-Channel{{ peer_link_po }}
+   reload-delay mlag {{ mlag_reload_delay }}
+   reload-delay non-mlag {{ mlag_reload_delay_nonmlag }}
+!
+{% for t in tiers %}
+ip route vrf {{ t.name }} 0.0.0.0/0 {{ t.transit_gw }}
+{% endfor %}
+!
+end

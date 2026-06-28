@@ -1,0 +1,12 @@
+# Non-secret group-level vars. Secrets live in vault.yml (encrypted).
+ansible_password: "{{ vault_ansible_password }}"
+ansible_become_password: "{{ vault_enable_password }}"
+
+# Force password auth — network_cli uses paramiko (not OpenSSH), so
+# ansible_ssh_common_args has no effect. Use paramiko-specific flags instead.
+ansible_ssh_pass: "{{ vault_ansible_password }}"
+ansible_paramiko_look_for_keys: false
+
+# Whether to write the running config to startup ("do wr mem" equivalent).
+# 'modified' = only save when this run actually changed something (idempotent).
+save_config_when: modified

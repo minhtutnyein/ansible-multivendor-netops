@@ -1,0 +1,181 @@
+# ---------------------------------------------------------------------
+# pa-fw01 — values transcribed from the live PA-VM01 running config.
+# The pa-fw01.yml playbook builds the firewall edge from these.
+# (IKE/IPSec crypto, gateways and tunnels live in the separate VPN
+#  playbook; here we build interfaces, zones, objects, VR, routes,
+#  NAT and the security policy.)
+# ---------------------------------------------------------------------
+
+virtual_router: vRouter01
+mgmt_profile: ping-profile
+
+# --- Interfaces ---
+outside_interface: ethernet1/1
+outside_ip: "10.1.5.5/24"
+outside_default_gw: 10.1.5.1
+inside_parent_interface: ethernet1/2
+
+transit_subifs:
+  - { sub: ethernet1/2.11, tag: 11, ip: "172.16.11.1/24", zone: WEB-TIER, comment: "Going to Web Transit" }
+  - { sub: ethernet1/2.21, tag: 21, ip: "172.16.21.1/24", zone: APP-TIER, comment: "Going to App Transit" }
+  - { sub: ethernet1/2.31, tag: 31, ip: "172.16.31.1/24", zone: DB-TIER,  comment: "Going to DB Transit" }
+
+tunnel_interfaces:
+  - { name: tunnel.1, ip: "111.111.111.111/32",                    comment: "### Going to Cisco BR01 ###" }
+  - { name: tunnel.2, ip: "222.222.222.222/32",  comment: "Going to Branch Router02" }
+
+# --- Zones (member interfaces) ---
+zones:
+  - { name: WEB-TIER,  interfaces: [ethernet1/2.11] }
+  - { name: APP-TIER,  interfaces: [ethernet1/2.21] }
+  - { name: DB-TIER,   interfaces: [ethernet1/2.31] }
+  - { name: OUTSIDE,   interfaces: [ethernet1/1] }
+  - { name: IPSEC-S2S, interfaces: [tunnel.1, tunnel.2] }
+#  - { name: VPN,       interfaces: [] }
+
+# --- Administrative tags (colors cosmetic; friendly names) ---
+tags:
+  - { name: WEB-TIER,  color: blue }
+  - { name: APP-TIER,  color: green }
+  - { name: DB-TIER,   color: purple }
+  - { name: OUTSIDE,   color: red }
+  - { name: DENY,      color: black }
+  - { name: IPSEC-S2S, color: yellow }
+
+# --- Address objects ---
+addresses:
+  - { name: Web-Transit,            value: 172.16.11.0/24,     tag: WEB-TIER,  desc: "Web Transit Network" }
+  - { name: Web-Net,                value: 10.0.10.0/24,       tag: WEB-TIER,  desc: "Web Internal Network" }
+  - { name: App-Transit,            value: 172.16.21.0/24,     tag: APP-TIER,  desc: "App Transit Network" }
+  - { name: App-Net,                value: 10.0.20.0/24,       tag: APP-TIER,  desc: "App Internal Network" }
+  - { name: DB-Transit,             value: 172.16.31.0/24,     tag: DB-TIER,   desc: "DB Transit Network" }
+  - { name: DB-Net,                 value: 10.0.30.0/24,       tag: DB-TIER,   desc: "DB Internal Network" }
+  - { name: WAN-IP,                 value: 10.1.5.5/24,        tag: OUTSIDE,   desc: "Public Access IP" }
+  - { name: BR01-Net,               value: 10.0.101.0/24,      tag: IPSEC-S2S, desc: "Branch Site01 Network" }
+  - { name: BR01-WAN-IP,            value: 10.1.5.145/32,      tag: OUTSIDE,   desc: "" }
+  - { name: Tunnel1-Interface,      value: 111.111.111.111/32, tag: IPSEC-S2S, desc: "" }
+  - { name: BR01-Tunnel1-Interface, value: 11.11.11.11/32,     tag: IPSEC-S2S, desc: "" }
+
+address_group:
+  name: ALL-INTERNAL
+  members: [Web-Net, App-Net, DB-Net]
+
+# --- Static routes (vRouter01) ---
+static_routes:
+  - { name: Route_To_Web_Net, destination: 10.0.10.0/24,  nexthop: 172.16.11.254, interface: ethernet1/2.11, metric: 10 }
+  - { name: Route_To_App_Net, destination: 10.0.20.0/24,  nexthop: 172.16.21.254, interface: ethernet1/2.21, metric: 10 }
+  - { name: Route_To_DB_Net,  destination: 10.0.30.0/24,  nexthop: 172.16.31.254, interface: ethernet1/2.31, metric: 10 }
+  - { name: Default_Route,    destination: 0.0.0.0/0,     nexthop: 10.1.5.1,      interface: ethernet1/1,    metric: 10 }
+  - { name: BR01-rt-1,        destination: 10.0.101.0/24, nexthop_type: none,     interface: tunnel.1,       metric: 10 }
+  - { name: Route_To_BR02,    destination: 10.0.102.0/24, nexthop_type: none,     interface: tunnel.2,       metric: 10 }
+
+# --- Source NAT (internet breakout via ethernet1/1 address) ---
+source_nat:
+  name: Source_Nat
+  from_zones: [WEB-TIER, APP-TIER, DB-TIER]
+  to_zone: OUTSIDE
+  source: [Web-Net, App-Net, DB-Net]
+
+# --- Security policy (ORDER MATTERS) ---
+security_rules:
+  - name: Allow_Tunnel_Interfaces
+    from: [IPSEC-S2S, OUTSIDE]
+    to: [IPSEC-S2S, OUTSIDE]
+    source: [BR01-Tunnel1-Interface, Tunnel1-Interface]
+    destination: [BR01-Tunnel1-Interface, Tunnel1-Interface]
+    application: [any]
+    service: [any]
+    action: allow
+    tag: [IPSEC-S2S]
+  - name: Allow_BR01_To_ServerFarm
+    from: [IPSEC-S2S]
+    to: [WEB-TIER, APP-TIER, DB-TIER]
+    source: [BR01-Net]
+    destination: [Web-Net, App-Net, DB-Net]
+    application: [any]
+    service: [any]
+    action: allow
+    tag: [IPSEC-S2S]
+  - name: Allow-Outside_To_Outside
+    from: [OUTSIDE]
+    to: [OUTSIDE]
+    source: [BR01-WAN-IP, WAN-IP]
+    destination: [BR01-WAN-IP, WAN-IP]
+    application: [icmp, ike, ping]
+    service: [any]
+    action: allow
+    tag: [OUTSIDE]
+  - name: Deny_To_TraceRoute
+    from: [WEB-TIER]
+    to: [OUTSIDE]
+    source: [Web-Net]
+    destination: [any]
+    application: [traceroute]
+    service: [any]
+    action: reset-both
+    tag: [WEB-TIER]
+  - name: Allow_Web_To_App
+    from: [WEB-TIER]
+    to: [APP-TIER]
+    source: [Web-Net]
+    destination: [App-Net]
+    application: [any]
+    service: [any]
+    action: allow
+    tag: [WEB-TIER]
+  - name: Allow_Web_To_DB
+    from: [WEB-TIER]
+    to: [DB-TIER]
+    source: [Web-Net]
+    destination: [DB-Net]
+    application: [any]
+    service: [any]
+    action: allow
+    tag: [WEB-TIER]
+  - name: Allow_App_To_DB
+    from: [APP-TIER]
+    to: [DB-TIER]
+    source: [App-Net]
+    destination: [DB-Net]
+    application: [any]
+    service: [any]
+    action: allow
+    tag: [APP-TIER]
+  - name: Going_To_Internet_Access
+    from: [WEB-TIER, APP-TIER, DB-TIER]
+    to: [OUTSIDE]
+    source: [Web-Net, App-Net, DB-Net]
+    destination: [any]
+    application: [any]
+    service: [any]
+    action: allow
+    tag: [WEB-TIER, APP-TIER, DB-TIER]
+  - name: Explicit_Deny
+    from: [any]
+    to: [any]
+    source: [any]
+    destination: [any]
+    application: [any]
+    service: [any]
+    action: reset-both
+    tag: [DENY]
+
+# --- IPSec VPN (site-to-site to BR01 and BR02) ---
+ike_crypto_profiles:
+  - { name: IKEv2-PHASE1,    dh: group20, hash: sha256, enc: aes-256-cbc, lifetime_seconds: 28800 }
+  - { name: BR01-IKE-CRYPTO, dh: group20, hash: sha256, enc: aes-256-cbc, lifetime_seconds: 28800 }
+
+ipsec_crypto_profiles:
+  - { name: IKEv2-PHASE2,      enc: aes-256-cbc, auth: sha256, dh: group5, lifetime_seconds: 3600 }
+  - { name: BR01-IPSEC-CRYPTO, enc: aes-256-cbc, auth: sha256, dh: group5, lifetime_seconds: 3600 }
+
+vpn_local_interface: ethernet1/1
+vpn_local_ip: "10.1.5.5/24"
+
+ike_gateways:
+  - { name: BR01-IKE-GW, peer: 10.1.5.145, crypto: BR01-IKE-CRYPTO, passive: true }
+  - { name: BR02-IKE-GW, peer: 10.1.5.6, crypto: IKEv2-PHASE1,    passive: false, local_id: 10.1.5.5, peer_id: 10.1.5.6 }
+
+ipsec_tunnels:
+  - { name: BR01-IPSEC-TUNNEL, tunnel_if: tunnel.1, gw: BR01-IKE-GW, crypto: BR01-IPSEC-CRYPTO, proxy_id: BR01-ANY }
+  - { name: IPSEC_To_BR01,     tunnel_if: tunnel.2, gw: BR02-IKE-GW, crypto: IKEv2-PHASE2,       proxy_id: "" }

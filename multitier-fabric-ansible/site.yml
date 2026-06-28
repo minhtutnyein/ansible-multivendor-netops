@@ -1,0 +1,45 @@
+---
+# =====================================================================
+#  Multi-tier Arista MLAG fabric — full site deployment
+#  Layers: Arista leaves (MLAG) -> Cisco transit/access (L2) -> Palo Alto edge
+#  Run order matters: bring up the fabric, then the edge gateways/NAT.
+# =====================================================================
+
+- name: Arista MLAG leaves (vEOS1/vEOS2) — VLANs, MLAG, VARP, VRFs, routes
+  hosts: arista_leaf
+  gather_facts: false
+  tasks:
+    - name: Push leaf configuration
+      arista.eos.eos_config:
+        src: templates/veos.j2
+        save_when: modified
+      register: r
+    - debug: { var: r.commands }
+      when: r.commands | default([]) | length > 0
+
+- name: Cisco distribution (vIOS3) — L2 transit trunks (VLAN 11,21,31)
+  hosts: ios_dist
+  gather_facts: false
+  tasks:
+    - name: Push vIOS3 configuration
+      cisco.ios.ios_config:
+        src: templates/vios3.j2
+        save_when: modified
+      register: r
+    - debug: { var: r.commands }
+      when: r.commands | default([]) | length > 0
+
+- name: Cisco access (vIOS4) — L2 access trunks + server ports (VLAN 10,20,30)
+  hosts: ios_access
+  gather_facts: false
+  tasks:
+    - name: Push vIOS4 configuration
+      cisco.ios.ios_config:
+        src: templates/vios4.j2
+        save_when: modified
+      register: r
+    - debug: { var: r.commands }
+      when: r.commands | default([]) | length > 0
+
+# Palo Alto edge — full PA-VM01 build lives in its own playbook
+- import_playbook: pa-fw01.yml

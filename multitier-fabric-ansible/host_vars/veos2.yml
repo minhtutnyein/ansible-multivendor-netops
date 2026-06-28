@@ -1,0 +1,12 @@
+# vEOS2 — MLAG peer B (values from vEOS2 running-config)
+mlag_local_ip: "192.168.12.2/30"     # Vlan4094 address
+mlag_peer_ip: "192.168.12.1"         # peer's Vlan4094 address
+peer_link_desc: MLAG_Peer_to_veos-leaf01
+
+# Per-switch SVI host octets (VARP VIP is .254 on both)
+access_octet: 2                       # 10.0.x0.2
+transit_octet: 12                     # 172.16.x1.12
+
+peer_link_members: [Ethernet1, Ethernet2]   # Po12 to vEOS1
+transit_members:   [Ethernet3]               # Po33 to vIOS3 (mlag)
+access_members:    [Ethernet4]               # Po44 to vIOS4 (mlag)

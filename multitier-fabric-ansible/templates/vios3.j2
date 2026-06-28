@@ -1,0 +1,33 @@
+hostname {{ inventory_hostname }}
+!
+clock timezone {{ ios_timezone }}
+!
+spanning-tree mode pvst
+spanning-tree extend system-id
+!
+{% for t in tiers %}
+vlan {{ t.transit_vlan }}
+ name {{ t.transit_vlan_name }}
+{% endfor %}
+!
+interface Port-channel{{ local_po }}
+ switchport trunk allowed vlan {{ transit_vlans }}
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+!
+{% for intf in veos_uplink_members %}
+interface {{ intf }}
+ switchport trunk allowed vlan {{ transit_vlans }}
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+ negotiation auto
+ channel-group {{ local_po }} mode active
+{% endfor %}
+!
+interface {{ pa_uplink_interface }}
+ switchport trunk allowed vlan {{ transit_vlans }}
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+ negotiation auto
+!
+end

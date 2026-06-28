@@ -1,0 +1,227 @@
+---
+# =====================================================================
+#  pa-fw01 — reproduces the PA-VM01 running config (edge build):
+#  mgmt profile, interfaces+subinterfaces, zones, tags, address objects,
+#  address group, virtual-router static routes, source NAT, security policy.
+#  IKE/IPSec crypto+gateways+tunnels are handled by the separate VPN playbook.
+# =====================================================================
+
+- name: Palo Alto pa-fw01 — edge configuration
+  hosts: palo_alto
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Management profile (ping)
+      paloaltonetworks.panos.panos_management_profile:
+        provider: "{{ provider }}"
+        name: "{{ mgmt_profile }}"
+        ping: true
+        state: present
+
+    - name: Outside interface (ethernet1/1)
+      paloaltonetworks.panos.panos_interface:
+        provider: "{{ provider }}"
+        if_name: "{{ outside_interface }}"
+        mode: layer3
+        ip: ["{{ outside_ip }}"]
+        enable_dhcp: false
+        management_profile: "{{ mgmt_profile }}"
+        vr_name: "{{ virtual_router }}"
+        comment: "Going to Outside"
+        state: present
+
+    - name: Inside parent interface (ethernet1/2)
+      paloaltonetworks.panos.panos_interface:
+        provider: "{{ provider }}"
+        if_name: "{{ inside_parent_interface }}"
+        mode: layer3
+        vr_name: "{{ virtual_router }}"
+        comment: "Internal Link"
+        state: present
+
+    - name: Transit subinterfaces (per-tier gateways)
+      paloaltonetworks.panos.panos_l3_subinterface:
+        provider: "{{ provider }}"
+        name: "{{ item.sub }}"
+        tag: "{{ item.tag }}"
+        ip: ["{{ item.ip }}"]
+        enable_dhcp: false
+        management_profile: "{{ mgmt_profile }}"
+        zone_name: "{{ item.zone }}"
+        vr_name: "{{ virtual_router }}"
+        comment: "{{ item.comment }}"
+        state: present
+      loop: "{{ transit_subifs }}"
+      loop_control: { label: "{{ item.sub }}" }
+
+    - name: Tunnel interfaces
+      paloaltonetworks.panos.panos_tunnel:
+        provider: "{{ provider }}"
+        if_name: "{{ item.name }}"
+        ip: "{{ [item.ip] if item.ip else omit }}"
+        vr_name: "{{ virtual_router }}"
+        zone_name: IPSEC-S2S
+        comment: "{{ item.comment }}"
+        state: present
+      loop: "{{ tunnel_interfaces }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: Administrative tags
+      paloaltonetworks.panos.panos_tag_object:
+        provider: "{{ provider }}"
+        name: "{{ item.name }}"
+        color: "{{ item.color }}"
+        state: present
+      loop: "{{ tags }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: Zones
+      paloaltonetworks.panos.panos_zone:
+        provider: "{{ provider }}"
+        zone: "{{ item.name }}"
+        mode: layer3
+        interface: "{{ item.interfaces }}"
+        state: present
+      loop: "{{ zones }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: Address objects
+      paloaltonetworks.panos.panos_address_object:
+        provider: "{{ provider }}"
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        address_type: ip-netmask
+        description: "{{ item.desc }}"
+        tag: ["{{ item.tag }}"]
+        state: present
+      loop: "{{ addresses }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: Address group ALL-INTERNAL
+      paloaltonetworks.panos.panos_address_group:
+        provider: "{{ provider }}"
+        name: "{{ address_group.name }}"
+        static_value: "{{ address_group.members }}"
+        state: present
+
+    - name: Static routes (vRouter01)
+      paloaltonetworks.panos.panos_static_route:
+        provider: "{{ provider }}"
+        virtual_router: "{{ virtual_router }}"
+        name: "{{ item.name }}"
+        destination: "{{ item.destination }}"
+        nexthop: "{{ item.nexthop | default(omit) }}"
+        nexthop_type: "{{ item.nexthop_type | default('ip-address') }}"
+        interface: "{{ item.interface }}"
+        metric: "{{ item.metric }}"
+        state: present
+      loop: "{{ static_routes }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: Source NAT (translate to outside interface address)
+      paloaltonetworks.panos.panos_nat_rule:
+        provider: "{{ provider }}"
+        name: "{{ source_nat.name }}"
+        from_zones: "{{ source_nat.from_zones }}"
+        to_zones: ["{{ source_nat.to_zone }}"]
+        source_addresses: "{{ source_nat.source }}"
+        destination_addresses: ["any"]
+        service: any
+        to_interface: "{{ outside_interface }}"
+        source_translation_type: dynamic-ip-and-port
+        source_translation_address_type: interface-address
+        source_translation_interface: "{{ outside_interface }}"
+        source_translation_ip_address: "{{ outside_ip }}"
+        state: present
+
+    - name: Security policy (in order)
+      paloaltonetworks.panos.panos_security_rule:
+        provider: "{{ provider }}"
+        rule_name: "{{ item.name }}"
+        source_zone: "{{ item.from }}"
+        destination_zone: "{{ item.to }}"
+        source_ip: "{{ item.source }}"
+        destination_ip: "{{ item.destination }}"
+        application: "{{ item.application }}"
+        service: "{{ item.service }}"
+        action: "{{ item.action }}"
+        tag_name: "{{ item.tag }}"
+        log_start: true
+        state: present
+      loop: "{{ security_rules }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    # ---------------- IPSec VPN (BR01 / BR02) ----------------
+    - name: IKE crypto profiles
+      paloaltonetworks.panos.panos_ike_crypto_profile:
+        provider: "{{ provider }}"
+        name: "{{ item.name }}"
+        dh_group: ["{{ item.dh }}"]
+        authentication: ["{{ item.hash }}"]
+        encryption: ["{{ item.enc }}"]
+        lifetime_seconds: "{{ item.lifetime_seconds }}"
+        state: present
+      loop: "{{ ike_crypto_profiles }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: IPSec crypto profiles
+      paloaltonetworks.panos.panos_ipsec_profile:
+        provider: "{{ provider }}"
+        name: "{{ item.name }}"
+        esp_encryption: ["{{ item.enc }}"]
+        esp_authentication: ["{{ item.auth }}"]
+        dh_group: "{{ item.dh }}"
+        lifetime_seconds: "{{ item.lifetime_seconds }}"
+        state: present
+      loop: "{{ ipsec_crypto_profiles }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: IKE gateways
+      paloaltonetworks.panos.panos_ike_gateway:
+        provider: "{{ provider }}"
+        name: "{{ item.name }}"
+        version: ikev2
+        interface: "{{ vpn_local_interface }}"
+        local_ip_address: "{{ vpn_local_ip }}"
+        local_ip_address_type: ip
+        peer_ip_type: ip
+        peer_ip_value: "{{ item.peer }}"
+        pre_shared_key: "{{ vault_psk }}"
+        ikev2_crypto_profile: "{{ item.crypto }}"
+        enable_passive_mode: "{{ item.passive }}"
+        local_id_value: "{{ item.local_id | default(omit) }}"
+        local_id_type: "{{ 'ipaddr' if item.local_id is defined else omit }}"
+        peer_id_value: "{{ item.peer_id | default(omit) }}"
+        peer_id_type: "{{ 'ipaddr' if item.peer_id is defined else omit }}"
+        state: present
+      loop: "{{ ike_gateways }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: IPSec tunnels
+      paloaltonetworks.panos.panos_ipsec_tunnel:
+        provider: "{{ provider }}"
+        name: "{{ item.name }}"
+        tunnel_interface: "{{ item.tunnel_if }}"
+        ak_ike_gateway: "{{ item.gw }}"
+        ak_ipsec_crypto_profile: "{{ item.crypto }}"
+        state: present
+      loop: "{{ ipsec_tunnels }}"
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: Tunnel proxy IDs (any/any for VTI interop)
+      paloaltonetworks.panos.panos_ipsec_ipv4_proxyid:
+        provider: "{{ provider }}"
+        name: "{{ item.proxy_id }}"
+        tunnel_name: "{{ item.name }}"
+        local: 0.0.0.0/0
+        remote: 0.0.0.0/0
+        state: present
+      loop: "{{ ipsec_tunnels }}"
+      when: item.proxy_id | length > 0
+      loop_control: { label: "{{ item.name }}" }
+
+    - name: Commit
+      paloaltonetworks.panos.panos_commit_firewall:
+        provider: "{{ provider }}"
+      when: do_commit | bool and not ansible_check_mode

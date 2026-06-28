@@ -1,0 +1,2 @@
+# Ignore Ansible group variables
+group_vars/**/vault.yml

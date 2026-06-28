@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------
+# PA-VM01 — peer end of the BR01 tunnel. Crypto values mirror the Cisco
+# BR01 config exactly (they MUST match or negotiation fails).
+#
+#                Cisco BR01 (10.1.5.145)  <==IKEv2/IPSec==>  PA-VM01 (10.1.5.5)
+# ---------------------------------------------------------------------
+
+# --- Names (PA-side objects) ---
+ike_crypto_profile: BR01-IKE-CRYPTO
+ipsec_crypto_profile: BR01-IPSEC-CRYPTO
+ike_gateway: BR01-IKE-GW
+ipsec_tunnel: BR01-IPSEC-TUNNEL
+
+# --- Phase 1 / IKE crypto  (Cisco: aes-cbc-256 / sha256 / group 20 / 28800) ---
+ike_dh_group: group20
+ike_authentication: sha256
+ike_encryption: aes-256-cbc
+ike_lifetime_seconds: 28800
+
+# --- Phase 2 / IPSec crypto (Cisco: esp-aes 256 / esp-sha256-hmac / pfs group5) ---
+ipsec_esp_encryption: aes-256-cbc
+ipsec_esp_authentication: sha256
+ipsec_pfs_dh_group: group5          # set to 'no-pfs' to disable PFS
+ipsec_lifetime_seconds: 3600        # Cisco IOS default Phase 2 SA lifetime (1h)
+
+# --- IKE gateway / peering ---
+pa_egress_interface: ethernet1/1    # interface that owns 10.1.5.5
+pa_local_ip: "10.1.5.5/24"          # local address on that interface (CIDR)
+peer_ip: 10.1.5.145                 # Cisco BR01 tunnel source / local identity
+
+# --- Tunnel interface + binding ---
+tunnel_interface: tunnel.1
+virtual_router: default
+security_zone: VPN                  # zone the tunnel interface lands in
+
+# --- Proxy IDs (Phase 2 traffic selectors) ---
+# A Cisco VTI (tunnel mode ipsec ipv4) negotiates 0.0.0.0/0 <-> 0.0.0.0/0,
+# so use a single any/any proxy ID for interop.
+proxy_id_name: BR01-ANY
+proxy_id_local: 0.0.0.0/0
+proxy_id_remote: 0.0.0.0/0
+
+# --- Static routes: networks reachable ACROSS the tunnel (behind BR01) ---
+# IMPORTANT: these must be the subnets that live BEHIND the Cisco BR01, i.e.
+# the ones the PA should send INTO the tunnel. Confirm direction against your
+# topology — the six below are placeholders mirroring BR01's route list and
+# very likely need changing. nexthop_type 'none' = route out the tunnel iface.
+remote_networks:
+  - { name: BR01-rt-1, destination: 10.0.10.0/24 }
+  - { name: BR01-rt-2, destination: 10.0.20.0/24 }
+  - { name: BR01-rt-3, destination: 10.0.30.0/24 }
+  - { name: BR01-rt-4, destination: 172.16.11.0/24 }
+  - { name: BR01-rt-5, destination: 172.16.21.0/24 }
+  - { name: BR01-rt-6, destination: 172.16.31.0/24 }

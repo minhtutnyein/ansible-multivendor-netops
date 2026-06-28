@@ -1,0 +1,4 @@
+# vIOS3 — L2 distribution/transit switch (trunks VLAN 11,21,31)
+local_po: 3                                          # Port-channel3 (local)
+veos_uplink_members: [GigabitEthernet0/1, GigabitEthernet0/2]   # to vEOS pair
+pa_uplink_interface: GigabitEthernet0/0              # standalone trunk to Palo Alto

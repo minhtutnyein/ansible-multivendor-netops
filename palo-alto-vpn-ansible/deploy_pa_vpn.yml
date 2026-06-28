@@ -1,0 +1,102 @@
+---
+- name: Configure IKEv2 / IPSec site-to-site VPN on PA-VM01 (peer of Cisco BR01)
+  hosts: firewalls
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Phase 1 - IKE crypto profile
+      paloaltonetworks.panos.panos_ike_crypto_profile:
+        provider: "{{ provider }}"
+        state: present
+        name: "{{ ike_crypto_profile }}"
+        dh_group: ["{{ ike_dh_group }}"]
+        authentication: ["{{ ike_authentication }}"]
+        encryption: ["{{ ike_encryption }}"]
+        lifetime_seconds: "{{ ike_lifetime_seconds }}"
+
+    - name: Phase 2 - IPSec crypto profile
+      paloaltonetworks.panos.panos_ipsec_profile:
+        provider: "{{ provider }}"
+        state: present
+        name: "{{ ipsec_crypto_profile }}"
+        esp_encryption: ["{{ ipsec_esp_encryption }}"]
+        esp_authentication: ["{{ ipsec_esp_authentication }}"]
+        dh_group: "{{ ipsec_pfs_dh_group }}"
+        lifetime_seconds: "{{ ipsec_lifetime_seconds }}"
+
+    - name: Tunnel interface (attach to virtual router + zone)
+      paloaltonetworks.panos.panos_tunnel:
+        provider: "{{ provider }}"
+        state: present
+        if_name: "{{ tunnel_interface }}"
+        vr_name: "{{ virtual_router }}"
+        zone_name: "{{ security_zone }}"
+        comment: "### Going to Cisco BR01 ###"
+
+    - name: IKE gateway (peer = Cisco BR01)
+      paloaltonetworks.panos.panos_ike_gateway:
+        provider: "{{ provider }}"
+        state: present
+        name: "{{ ike_gateway }}"
+        version: ikev2
+        interface: "{{ pa_egress_interface }}"
+        local_ip_address: "{{ pa_local_ip }}"
+        local_ip_address_type: ip
+        peer_ip_type: ip
+        peer_ip_value: "{{ peer_ip }}"
+        pre_shared_key: "{{ vault_psk }}"
+        ikev2_crypto_profile: "{{ ike_crypto_profile }}"
+
+    - name: IPSec tunnel (bind interface + gateway + crypto)
+      paloaltonetworks.panos.panos_ipsec_tunnel:
+        provider: "{{ provider }}"
+        state: present
+        name: "{{ ipsec_tunnel }}"
+        tunnel_interface: "{{ tunnel_interface }}"
+        ak_ike_gateway: "{{ ike_gateway }}"
+        ak_ipsec_crypto_profile: "{{ ipsec_crypto_profile }}"
+
+    - name: Proxy ID (any/any for Cisco VTI interop)
+      paloaltonetworks.panos.panos_ipsec_ipv4_proxyid:
+        provider: "{{ provider }}"
+        state: present
+        name: "{{ proxy_id_name }}"
+        tunnel_name: "{{ ipsec_tunnel }}"
+        local: "{{ proxy_id_local }}"
+        remote: "{{ proxy_id_remote }}"
+
+    - name: Static routes for networks across the tunnel
+      paloaltonetworks.panos.panos_static_route:
+        provider: "{{ provider }}"
+        state: present
+        virtual_router: "{{ virtual_router }}"
+        name: "{{ item.name }}"
+        destination: "{{ item.destination }}"
+        interface: "{{ tunnel_interface }}"
+        nexthop_type: none
+      loop: "{{ remote_networks }}"
+      loop_control:
+        label: "{{ item.destination }}"
+
+    - name: Commit candidate configuration
+      paloaltonetworks.panos.panos_commit_firewall:
+        provider: "{{ provider }}"
+      when: do_commit | bool and not ansible_check_mode
+
+    - name: Verify IKE / IPSec SAs
+      paloaltonetworks.panos.panos_op:
+        provider: "{{ provider }}"
+        cmd: "{{ item }}"
+      loop:
+        - show vpn ike-sa
+        - show vpn ipsec-sa
+        - show vpn flow
+      register: vpn_status
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Show verification output
+      ansible.builtin.debug:
+        var: vpn_status.results | map(attribute='stdout') | list
+      when: not ansible_check_mode

@@ -1,0 +1,38 @@
+crypto ikev2 proposal {{ ike_proposal }}
+ encryption {{ ike_encryption }}
+ integrity {{ ike_integrity }}
+ group {{ ike_dh_group }}
+crypto ikev2 policy {{ ike_policy }}
+ match address local {{ ike_policy_local_addr }}
+ proposal {{ ike_proposal }}
+crypto ikev2 keyring {{ ike_keyring }}
+ peer {{ peer_ip }}
+  address {{ peer_ip }}
+  pre-shared-key local {{ psk_local }}
+  pre-shared-key remote {{ psk_remote }}
+crypto ikev2 profile {{ ike_profile }}
+ match identity remote address {{ remote_identity_addr }} {{ remote_identity_mask }}
+ identity local address {{ local_identity_addr }}
+ authentication local pre-share
+ authentication remote pre-share
+ keyring local {{ ike_keyring }}
+ lifetime {{ ike_lifetime }}
+crypto ipsec transform-set {{ transform_set }} {{ esp_cipher }} {{ esp_hmac }}
+ mode tunnel
+crypto ipsec profile {{ ipsec_profile }}
+ description {{ ipsec_profile_desc }}
+ set transform-set {{ transform_set }}
+ set pfs {{ pfs_group }}
+ set ikev2-profile {{ ike_profile }}
+interface Tunnel{{ tunnel_id }}
+ description {{ tunnel_desc }}
+ ip address {{ tunnel_ip }} {{ tunnel_mask }}
+ ip tcp adjust-mss {{ tunnel_mss }}
+ tunnel source {{ tunnel_source }}
+ tunnel mode ipsec ipv4
+ tunnel destination {{ tunnel_destination }}
+ tunnel protection ipsec profile {{ ipsec_profile }}
+ no shutdown
+{% for r in static_routes %}
+ip route {{ r.network }} {{ r.mask }} {{ r.next_hop }}
+{% endfor %}

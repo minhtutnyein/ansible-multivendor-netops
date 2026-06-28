@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------
+# Site-specific values for BR01. Copy this file for BR02, BR03, ... and
+# change the values; the template + playbook stay the same.
+# ---------------------------------------------------------------------
+
+site_name: BR01
+
+# --- IKEv2 (Phase 1) ---
+ike_proposal: BR01-IKE-PROPOSAL
+ike_encryption: aes-cbc-256
+ike_integrity: sha256
+ike_dh_group: 20
+
+ike_policy: BR01-IKE-POLICY
+ike_policy_local_addr: 10.1.5.145      # match address local
+
+ike_keyring: BR01-KEY
+peer_ip: 10.1.5.5                       # keyring peer + address
+psk_local: "{{ vault_psk_local }}"
+psk_remote: "{{ vault_psk_remote }}"
+
+ike_profile: BR01-IKE-PROFILE
+remote_identity_addr: 10.1.5.5
+remote_identity_mask: 255.255.255.255
+local_identity_addr: 10.1.5.145
+ike_lifetime: 28800
+
+# --- IPSec (Phase 2) ---
+transform_set: BR01-TS
+esp_cipher: "esp-aes 256"
+esp_hmac: esp-sha256-hmac
+ipsec_profile: BR01-IPSEC-PROFILE
+ipsec_profile_desc: "### IPSEC PHASE2 ###"
+pfs_group: group5
+
+# --- Tunnel interface ---
+tunnel_id: 1
+tunnel_desc: "### Going to PA-VM01 ###"
+tunnel_ip: 11.11.11.11
+tunnel_mask: 255.255.255.255
+tunnel_mss: 1379
+tunnel_source: 10.1.5.145
+tunnel_destination: 10.1.5.5
+
+# --- Static routes (network / mask / next-hop) ---
+# next_hop may be an IP (e.g. 10.1.5.1) or an interface (e.g. Tunnel1).
+static_routes:
+  - { network: 0.0.0.0, mask: 0.0.0.0, next_hop: 10.1.5.1 }
+  - { network: 10.0.10.0, mask: 255.255.255.0, next_hop: Tunnel1 }
+  - { network: 10.0.20.0, mask: 255.255.255.0, next_hop: Tunnel1 }
+  - { network: 10.0.30.0, mask: 255.255.255.0, next_hop: Tunnel1 }
+  - { network: 172.16.11.0, mask: 255.255.255.0, next_hop: Tunnel1 }
+  - { network: 172.16.21.0, mask: 255.255.255.0, next_hop: Tunnel1 }
+  - { network: 172.16.31.0, mask: 255.255.255.0, next_hop: Tunnel1 }

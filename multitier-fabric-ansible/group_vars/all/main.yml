@@ -1,0 +1,75 @@
+# =====================================================================
+#  FABRIC-WIDE FACTS (from the architecture diagram)
+#  Every device template/play reads from here so values stay consistent.
+# =====================================================================
+
+# --- MLAG (Domain 12) ---
+mlag_domain: "12"
+mlag_trunk_group: MLAG
+peer_link_po: 12
+peer_link_vlan: 4094
+varp_mac: "00:1c:73:00:00:01"
+mlag_reload_delay: 300
+mlag_reload_delay_nonmlag: 300
+
+# --- System ---
+timezone: Asia/Singapore
+ios_timezone: "SGP 8 0"
+
+# --- Downstream/upstream MLAG port-channels on the leaves ---
+transit_po: 33                    # Po33 -> vIOS3  (VLAN 11,21,31)
+access_po: 44                     # Po44 -> vIOS4  (VLAN 10,20,30)
+
+# Pre-joined VLAN lists for trunk "allowed vlan" statements
+transit_vlans: "11,21,31"
+access_vlans: "10,20,30"
+
+# --- Palo Alto / virtual-router used for the transit gateways ---
+pa_virtual_router: vRouter01      # matches the existing firewall config
+outside_zone: OUTSIDE
+
+# --- The three application tiers ---
+# Each tier = one access VLAN (servers) + one transit VLAN (uplink to PA),
+# isolated in its own VRF on the leaves. transit_gw is the PA subinterface.
+tiers:
+  - name: WEB-TIER
+    access_vlan: 10
+    access_vlan_name: WEB-VLAN
+    access_net: 10.0.10.0/24
+    access_prefix: 10.0.10
+    access_vip: 10.0.10.254
+    transit_vlan: 11
+    transit_vlan_name: WEB-TRANSIT
+    transit_net: 172.16.11.0/24
+    transit_prefix: 172.16.11
+    transit_vip: 172.16.11.254     # VARP gateway on the leaves
+    transit_gw: 172.16.11.1        # PA subinterface ethernet1/2.11
+    mask: 24
+
+  - name: APP-TIER
+    access_vlan: 20
+    access_vlan_name: APP-VLAN
+    access_net: 10.0.20.0/24
+    access_prefix: 10.0.20
+    access_vip: 10.0.20.254
+    transit_vlan: 21
+    transit_vlan_name: APP-TRANSIT
+    transit_net: 172.16.21.0/24
+    transit_prefix: 172.16.21
+    transit_vip: 172.16.21.254
+    transit_gw: 172.16.21.1        # PA subinterface ethernet1/2.21
+    mask: 24
+
+  - name: DB-TIER
+    access_vlan: 30
+    access_vlan_name: DB-VLAN
+    access_net: 10.0.30.0/24
+    access_prefix: 10.0.30
+    access_vip: 10.0.30.254
+    transit_vlan: 31
+    transit_vlan_name: DB-TRANSIT
+    transit_net: 172.16.31.0/24
+    transit_prefix: 172.16.31
+    transit_vip: 172.16.31.254
+    transit_gw: 172.16.31.1        # PA subinterface ethernet1/2.31
+    mask: 24
