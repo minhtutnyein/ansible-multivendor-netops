@@ -98,6 +98,83 @@ ansible-playbook <playbook>.yml --ask-vault-pass                  # apply
 Collections used across the bundle: `arista.eos`, `cisco.ios`,
 `paloaltonetworks.panos`, `ansible.netcommon`.
 
+## CI/CD (GitHub Actions)
+
+### Pipeline overview
+
+| Workflow file | Trigger | Runner | What it does |
+|---|---|---|---|
+| `ci.yml` | Every PR + push to `main` | `ubuntu-latest` | yamllint → ansible-lint → syntax-check |
+| `cisco-vpn-dryrun.yml` | Push to `main` (cisco-vpn files) or manual | `self-hosted, network-lab` | `--check --diff` against BR01 |
+| `fabric-dryrun.yml` | Push to `main` (fabric files) or manual | `self-hosted, network-lab` | `--check --diff` against all fabric devices |
+| `pa-vpn-dryrun.yml` | Push to `main` (pa-vpn files) or manual | `self-hosted, network-lab` | `--check --diff` against pa-fw01 |
+
+No workflow pushes configuration to devices — dry-run only.
+
+### Prerequisites
+
+#### 1. Self-hosted runner (inside your lab network)
+The dry-run jobs need a runner that can reach all devices (`10.1.5.x`).
+
+```bash
+# On a Linux VM/host inside your lab:
+
+# a) Create a dedicated user (optional but recommended)
+sudo useradd -m github-runner
+
+# b) Download and register the runner
+# Go to: GitHub repo → Settings → Actions → Runners → New self-hosted runner
+# Follow the on-screen commands, then add the custom label:
+./config.sh --url https://github.com/<org>/<repo> --token <TOKEN> --labels network-lab
+
+# c) Install as a service
+sudo ./svc.sh install
+sudo ./svc.sh start
+
+# d) Pre-install Python dependencies on the runner host
+pip install ansible-core pan-os-python
+```
+
+#### 2. GitHub Secret — vault password
+The syntax-check and dry-run jobs decrypt `vault.yml` files using the Ansible
+vault password stored as a GitHub secret.
+
+```
+GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+
+  Name : ANSIBLE_VAULT_PASS
+  Value: <your ansible-vault password>
+```
+
+#### 3. Encrypted vault files must be committed
+Vault files are referenced by every playbook. Encrypt them before committing:
+
+```bash
+ansible-vault encrypt cisco-vpn-ansible/group_vars/branch_routers/vault.yml
+ansible-vault encrypt multitier-fabric-ansible/group_vars/all/vault.yml   # if present
+ansible-vault encrypt palo-alto-vpn-ansible/group_vars/firewalls/vault.yml
+```
+
+Then update `.gitignore` to **remove** the `group_vars/**/vault.yml` exclusion
+so the encrypted files are tracked by git.
+
+### Running a dry-run manually
+
+Every dry-run workflow has a **Run workflow** button in GitHub Actions.
+You can optionally pass `--limit` to target a single device:
+
+```
+GitHub repo → Actions → Cisco VPN — Dry Run → Run workflow
+  limit: br01          ← optional, leave blank for all hosts
+```
+
+### Lint configuration files
+
+| File | Purpose |
+|---|---|
+| `.yamllint.yml` | Line-length 160, permits `yes`/`no`, ignores vault files and images |
+| `.ansible-lint` | `moderate` profile, mocks all vendor collection modules |
+
 ## Notes
 - All configs validated and template-rendered locally; run `--check --diff`
   against one device of each type before a full rollout — they were not run

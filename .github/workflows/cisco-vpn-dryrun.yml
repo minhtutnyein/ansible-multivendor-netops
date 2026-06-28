@@ -1,0 +1,56 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Cisco VPN — Dry Run (--check --diff)
+#
+# Triggered automatically when cisco-vpn-ansible/** files change on main,
+# or manually via workflow_dispatch for any branch.
+#
+# Runs on a SELF-HOSTED runner tagged [self-hosted, network-lab] that has
+# SSH reachability to the branch routers (10.1.5.x).
+#
+# No config is pushed to devices — Ansible check mode only.
+# Requires: ANSIBLE_VAULT_PASS secret in GitHub repo settings.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Cisco VPN — Dry Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cisco-vpn-ansible/**"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Ansible --limit (e.g. br01). Leave blank for all hosts."
+        required: false
+        default: ""
+
+jobs:
+  dryrun:
+    name: "cisco-vpn — --check --diff"
+    runs-on: [self-hosted, network-lab]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ansible-core
+        run: pip install --quiet ansible-core
+
+      - name: Install Cisco collection
+        working-directory: cisco-vpn-ansible
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Write vault password file
+        run: echo "${{ secrets.ANSIBLE_VAULT_PASS }}" > /tmp/.vault_pass
+
+      - name: Dry run — cisco-vpn-ansible
+        working-directory: cisco-vpn-ansible
+        run: |
+          ansible-playbook deploy_vpn.yml \
+            --check --diff \
+            --vault-password-file /tmp/.vault_pass \
+            ${{ github.event.inputs.limit != '' && format('--limit {0}', github.event.inputs.limit) || '' }}
+
+      - name: Remove vault password file
+        if: always()
+        run: rm -f /tmp/.vault_pass

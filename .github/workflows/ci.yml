@@ -1,0 +1,110 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# CI — Lint + Syntax Check
+# Runs on every pull-request and every push to main.
+# Does NOT touch any network device — no vault credentials required for lint.
+# Syntax-check needs ANSIBLE_VAULT_PASS stored in GitHub → Settings → Secrets.
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI — Lint & Syntax Check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ── 1. YAML lint ─────────────────────────────────────────────────────────
+  yamllint:
+    name: yamllint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Run yamllint
+        run: yamllint -c .yamllint.yml .
+
+  # ── 2. Ansible lint ──────────────────────────────────────────────────────
+  ansible-lint:
+    name: ansible-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install ansible-core + lint
+        run: pip install ansible-core ansible-lint
+
+      - name: Install all collections
+        run: |
+          ansible-galaxy collection install -r cisco-vpn-ansible/requirements.yml
+          ansible-galaxy collection install -r multitier-fabric-ansible/requirements.yml
+
+      - name: ansible-lint — cisco-vpn-ansible
+        working-directory: cisco-vpn-ansible
+        run: ansible-lint deploy_vpn.yml
+
+      - name: ansible-lint — multitier-fabric-ansible
+        working-directory: multitier-fabric-ansible
+        run: ansible-lint site.yml pa-fw01.yml
+
+  # ── 3. Syntax check ──────────────────────────────────────────────────────
+  # Requires ANSIBLE_VAULT_PASS secret.  Skipped on forks (secret is absent).
+  syntax-check:
+    name: Syntax Check
+    runs-on: ubuntu-latest
+    needs: [yamllint, ansible-lint]
+    # Skip on forked PRs where the secret is unavailable
+    if: ${{ vars.ANSIBLE_VAULT_PASS_SET == 'true' || github.event_name == 'push' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install ansible-core + Python deps
+        run: pip install ansible-core pan-os-python
+
+      - name: Install all collections
+        run: |
+          ansible-galaxy collection install -r cisco-vpn-ansible/requirements.yml
+          ansible-galaxy collection install -r multitier-fabric-ansible/requirements.yml
+
+      - name: Write vault password file
+        run: echo "${{ secrets.ANSIBLE_VAULT_PASS }}" > /tmp/.vault_pass
+        # File is removed at job teardown automatically (ephemeral runner)
+
+      - name: Syntax check — cisco-vpn-ansible
+        working-directory: cisco-vpn-ansible
+        run: |
+          ansible-playbook deploy_vpn.yml \
+            --syntax-check \
+            --vault-password-file /tmp/.vault_pass
+
+      - name: Syntax check — multitier-fabric-ansible
+        working-directory: multitier-fabric-ansible
+        run: |
+          ansible-playbook site.yml \
+            --syntax-check \
+            --vault-password-file /tmp/.vault_pass
+
+      - name: Remove vault password file
+        if: always()
+        run: rm -f /tmp/.vault_pass

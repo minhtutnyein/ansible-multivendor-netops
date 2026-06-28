@@ -1,0 +1,31 @@
+---
+profile: moderate
+
+exclude_paths:
+  - .git/
+  - "**/vault.yml"
+
+warn_list:
+  - yaml[line-length]
+  - name[casing]
+
+skip_list:
+  - no-changed-when        # verify tasks already set changed_when: false
+  - yaml[truthy]           # network vars use yes/no
+
+mock_modules:
+  - cisco.ios.ios_config
+  - cisco.ios.ios_command
+  - arista.eos.eos_config
+  - paloaltonetworks.panos.panos_ike_crypto_profile
+  - paloaltonetworks.panos.panos_ipsec_profile
+  - paloaltonetworks.panos.panos_ike_gateway
+  - paloaltonetworks.panos.panos_tunnel
+  - paloaltonetworks.panos.panos_static_route
+  - paloaltonetworks.panos.panos_ipsec_tunnel
+  - paloaltonetworks.panos.panos_address_object
+  - paloaltonetworks.panos.panos_zone
+  - paloaltonetworks.panos.panos_interface
+  - paloaltonetworks.panos.panos_nat_rule
+  - paloaltonetworks.panos.panos_security_rule
+  - paloaltonetworks.panos.panos_commit

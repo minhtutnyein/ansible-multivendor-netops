@@ -1,0 +1,57 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Multitier Fabric — Dry Run (--check --diff)
+#
+# Triggered automatically when multitier-fabric-ansible/** files change on main,
+# or manually via workflow_dispatch.
+#
+# Runs on a SELF-HOSTED runner tagged [self-hosted, network-lab] that has
+# reachability to all fabric devices (vEOS1/2, vIOS3/4, pa-fw01).
+#
+# No config is pushed to devices — Ansible check mode only.
+# Requires: ANSIBLE_VAULT_PASS secret in GitHub repo settings.
+# Requires: pip install pan-os-python on the self-hosted runner.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Multitier Fabric — Dry Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "multitier-fabric-ansible/**"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Ansible --limit (e.g. arista_leaf, veos1, pa-fw01). Leave blank for all."
+        required: false
+        default: ""
+
+jobs:
+  dryrun:
+    name: "multitier-fabric — --check --diff"
+    runs-on: [self-hosted, network-lab]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ansible-core + Palo Alto Python SDK
+        run: pip install --quiet ansible-core pan-os-python
+
+      - name: Install collections
+        working-directory: multitier-fabric-ansible
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Write vault password file
+        run: echo "${{ secrets.ANSIBLE_VAULT_PASS }}" > /tmp/.vault_pass
+
+      - name: Dry run — multitier-fabric-ansible
+        working-directory: multitier-fabric-ansible
+        run: |
+          ansible-playbook site.yml \
+            --check --diff \
+            --vault-password-file /tmp/.vault_pass \
+            ${{ github.event.inputs.limit != '' && format('--limit {0}', github.event.inputs.limit) || '' }}
+
+      - name: Remove vault password file
+        if: always()
+        run: rm -f /tmp/.vault_pass
