@@ -11,6 +11,9 @@ network-automation/
 └── palo-alto-vpn-ansible/      # standalone Palo Alto side of the BR01 VPN
 ```
 
+## Architecture 
+![alt text](ANSIBLE-MULTIVENDOR.jpeg)
+
 ## 1. multitier-fabric-ansible  ★ main project
 End-to-end automation for the whole fabric, with every device config transcribed
 from the live running-configs (idempotent on re-run):
