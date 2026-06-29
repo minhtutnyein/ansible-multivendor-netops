@@ -102,11 +102,7 @@ Quick check that variables resolve for a host of each type:
 ansible-inventory --host veos1
 ansible-inventory --host pa-fw01
 ```
-## Verify
-```bash
-cd multiiter-fabric-ansible
-ansible-playbook verify.yml --ask-vault-pass
-```
+
 
 ## Notes & assumptions
 - Switch configs are pushed with `save_when: modified` (idempotent); the firewall
@@ -125,6 +121,13 @@ ansible-playbook verify.yml --ask-vault-pass
 - Run `--check --diff` against one device of each type before a full rollout.
 
 ## Suggested verification after deploy
+
+## Verify all except br01
+```bash
+cd multiiter-fabric-ansible
+ansible-playbook verify.yml --ask-vault-pass
+```
+
 ```bash
 # Arista MLAG + VARP
 ansible arista_leaf -m arista.eos.eos_command \
