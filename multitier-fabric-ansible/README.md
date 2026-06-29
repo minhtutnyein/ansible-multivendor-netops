@@ -102,6 +102,11 @@ Quick check that variables resolve for a host of each type:
 ansible-inventory --host veos1
 ansible-inventory --host pa-fw01
 ```
+## Verify
+```bash
+cd multiiter-fabric-ansible
+ansible-playbook verify.yml --ask-vault-pass
+```
 
 ## Notes & assumptions
 - Switch configs are pushed with `save_when: modified` (idempotent); the firewall

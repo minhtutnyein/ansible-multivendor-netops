@@ -1,0 +1,131 @@
+---
+# =====================================================================
+#  Read-only post-deployment verification across the whole fabric.
+#  Safe to run any time: every task is changed_when:false (no config change).
+#     ansible-playbook verify.yml --ask-vault-pass
+#  Limit to one layer:  --limit arista_leaf | ios_dist | ios_access | palo_alto
+# =====================================================================
+
+- name: Verify Arista MLAG leaves
+  hosts: arista_leaf
+  gather_facts: false
+  tasks:
+    - name: Collect EOS state
+      arista.eos.eos_command:
+        commands:
+          - show mlag                         # state should be 'active', consistent
+          - show mlag interfaces detail        # Po33/Po44 mlag members up
+          - show port-channel summary
+          - show ip virtual-router             # VARP addresses active per SVI
+          - show vrf
+          - show ip route vrf WEB-TIER 0.0.0.0/0
+          - show ip route vrf APP-TIER 0.0.0.0/0
+          - show ip route vrf DB-TIER 0.0.0.0/0
+      register: eos
+      changed_when: false
+    - name: Show EOS output
+      ansible.builtin.debug:
+        msg: "{{ eos.stdout_lines }}"
+
+- name: Verify Cisco transit switch (vIOS3)
+  hosts: ios_dist
+  gather_facts: false
+  tasks:
+    - name: Collect IOS state
+      cisco.ios.ios_command:
+        commands:
+          - show vlan brief
+          - show interfaces trunk
+          - show etherchannel summary
+          - show interfaces status
+      register: ios3
+      changed_when: false
+    - name: Show vIOS3 output
+      ansible.builtin.debug:
+        msg: "{{ ios3.stdout_lines }}"
+
+- name: Verify Cisco access switch (vIOS4)
+  hosts: ios_access
+  gather_facts: false
+  tasks:
+    - name: Collect IOS state
+      cisco.ios.ios_command:
+        commands:
+          - show vlan brief
+          - show interfaces trunk
+          - show etherchannel summary
+          - show interfaces status
+      register: ios4
+      changed_when: false
+    - name: Show vIOS4 output
+      ansible.builtin.debug:
+        msg: "{{ ios4.stdout_lines }}"
+
+- name: Verify Palo Alto edge + VPN (readable summary)
+  hosts: palo_alto
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Interfaces
+      paloaltonetworks.panos.panos_op: { provider: "{{ provider }}", cmd: show interface all }
+      register: r_if
+      changed_when: false
+    - name: Routes
+      paloaltonetworks.panos.panos_op: { provider: "{{ provider }}", cmd: show routing route }
+      register: r_rt
+      changed_when: false
+    - name: IKE SAs
+      paloaltonetworks.panos.panos_op: { provider: "{{ provider }}", cmd: show vpn ike-sa }
+      register: r_ike
+      changed_when: false
+    - name: IPSec SAs
+      paloaltonetworks.panos.panos_op: { provider: "{{ provider }}", cmd: show vpn ipsec-sa }
+      register: r_ipsec
+      changed_when: false
+
+    - name: Ensure xmltodict is installed on the control node
+      ansible.builtin.assert:
+        that: "'install xmltodict' not in (r_if.stdout | string)"
+        fail_msg: "Run:  pip install xmltodict"
+        quiet: true
+
+    - name: Parse XML -> structures
+      ansible.builtin.set_fact:
+        ifs:   "{{ ((r_if.stdout   | from_json).response.result.ifnet.entry) | default([]) }}"
+        rts:   "{{ ((r_rt.stdout   | from_json).response.result.entry)       | default([]) }}"
+        ikes:  "{{ ((r_ike.stdout  | from_json).response.result.entry)       | default([]) }}"
+        ipr:   "{{ (r_ipsec.stdout | from_json).response.result }}"
+
+    - name: Build readable text blocks
+      ansible.builtin.set_fact:
+        if_text: |-
+          ===== L3 INTERFACES =====
+          {% for e in (ifs if ifs is not mapping else [ifs]) %}{{ "%-16s"|format(e.name) }} {{ "%-18s"|format(e.ip if e.ip and e.ip != 'N/A' else 'no-ip') }} zone={{ e.zone if e.zone else '-' }}  {{ e.fwd }}
+          {% endfor %}
+        rt_text: |-
+          ===== ROUTES (vRouter01) =====
+          {% for e in (rts if rts is not mapping else [rts]) %}{{ "%-18s"|format(e.destination) }} via {{ "%-15s"|format(e.nexthop) }} {{ e.interface if e.interface else '' }} [{{ e.flags | trim }}]
+          {% endfor %}
+        ike_text: |-
+          ===== IKE SAs =====
+          {% for e in (ikes if ikes is not mapping else [ikes]) %}{{ "%-14s"|format(e.name) }} {{ e.mode }} {{ e.role }}  {{ e.algo }}  expires {{ e.expires }}
+          {% else %}(no IKE SAs established)
+          {% endfor %}
+        ipsec_text: |-
+          ===== IPSEC SAs ({{ ipr.ntun | default(0) }} tunnel(s) configured) =====
+          {% set sas = (ipr.entries.entry if (ipr.entries is defined and ipr.entries) else []) %}{% set sas = sas if sas is not mapping else [sas] %}{% for s in sas %}{{ "%-28s"|format(s.name) }} gw={{ s.gateway }}  peer={{ s.remote | trim }}  {{ s.proto }}/{{ s.enc }}/{{ s.hash }}  SPI in={{ s.i_spi }} out={{ s.o_spi }}  remain={{ s.remain }}s
+          {% else %}(no active IPSec SAs right now)
+          {% endfor %}
+
+    - name: Interfaces
+      ansible.builtin.debug:
+        msg: "{{ if_text.split('\n') | reject('equalto','') | list }}"
+    - name: Routes
+      ansible.builtin.debug:
+        msg: "{{ rt_text.split('\n') | reject('equalto','') | list }}"
+    - name: IKE SAs
+      ansible.builtin.debug:
+        msg: "{{ ike_text.split('\n') | reject('equalto','') | list }}"
+    - name: IPSec SAs
+      ansible.builtin.debug:
+        msg: "{{ ipsec_text.split('\n') | reject('equalto','') | list }}"
